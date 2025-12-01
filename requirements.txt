@@ -1,3 +1,4 @@
 osmium
 lxml
 pyproj
+numpy
