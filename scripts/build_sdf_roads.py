@@ -3,85 +3,118 @@ import sys
 import os
 import math
 
-# ----------------------------------
-# Triangulation helper (earcut)
-# ----------------------------------
+# ================================================================
+# TRIANGULATION (fan from first vertex)
+# ================================================================
 
-def triangulate_polygon(polygon):
-    """Simple earcut triangulation for convex or mostly convex polygons."""
-    # NOTE: For your road polygons (long thin convex shapes), earcut is perfect.
-    # This small triangulator avoids external heavy libs.
-    if len(polygon) < 3:
+def triangulate_polygon(poly):
+    if len(poly) < 3:
         return []
-
     triangles = []
-    for i in range(1, len(polygon) - 1):
-        triangles.append([polygon[0], polygon[i], polygon[i+1]])
+    for i in range(1, len(poly) - 1):
+        triangles.append([poly[0], poly[i], poly[i+1]])
     return triangles
 
+# ================================================================
+# NORMAL CALCULATION
+# ================================================================
 
-# ----------------------------------
-# Main mesh builder
-# ----------------------------------
+def compute_normal(p1, p2, p3):
+    ux, uy, uz = p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]
+    vx, vy, vz = p3[0]-p1[0], p3[1]-p1[1], p3[2]-p1[2]
 
-def build_merged_obj(polygons, output_obj_path):
+    nx = uy * vz - uz * vy
+    ny = uz * vx - ux * vz
+    nz = ux * vy - uy * vx
+
+    length = math.sqrt(nx * nx + ny * ny + nz * nz)
+    if length == 0:
+        return 0.0, 0.0, 1.0
+
+    return nx/length, ny/length, nz/length
+
+# ================================================================
+# BUILD OBJ MESH (supports MultiPolygon)
+# ================================================================
+
+def build_obj_from_polygons(polygons, output_obj_path):
+    print("[INFO] Building OBJ asphalt mesh with normals...")
+
     vertices = []
+    normals = []
     faces = []
-    vcount = 1  # OBJ indices start at 1
 
-    for poly in polygons:
-        if len(poly) < 3:
-            continue
+    v_idx = 1
+    n_idx = 1
 
-        tris = triangulate_polygon(poly)
+    for group in polygons:  # each road may contain multiple merged polys
+        for poly in group:
+            # poly = list of (x,y)
+            if len(poly) < 3:
+                continue
 
-        for tri in tris:
-            # Add triangle vertices
-            tri_indices = []
-            for (x, y) in tri:
-                vertices.append(f"v {x} {y} 0.02\n")   # small height so it is visible
-                tri_indices.append(vcount)
-                vcount += 1
+            triangles = triangulate_polygon(poly)
 
-            # Create face
-            faces.append(f"f {tri_indices[0]} {tri_indices[1]} {tri_indices[2]}\n")
+            for tri in triangles:
+                p1 = (tri[0][0], tri[0][1], 0.02)
+                p2 = (tri[1][0], tri[1][1], 0.02)
+                p3 = (tri[2][0], tri[2][1], 0.02)
 
-    # Write OBJ
+                nx, ny, nz = compute_normal(p1, p2, p3)
+
+                vertices.append(f"v {p1[0]} {p1[1]} {p1[2]}\n")
+                vertices.append(f"v {p2[0]} {p2[1]} {p2[2]}\n")
+                vertices.append(f"v {p3[0]} {p3[1]} {p3[2]}\n")
+
+                normals.append(f"vn {nx} {ny} {nz}\n")
+                normals.append(f"vn {nx} {ny} {nz}\n")
+                normals.append(f"vn {nx} {ny} {nz}\n")
+
+                faces.append(
+                    f"f {v_idx}//{n_idx} {v_idx+1}//{n_idx+1} {v_idx+2}//{n_idx+2}\n"
+                )
+
+                v_idx += 3
+                n_idx += 3
+
     os.makedirs(os.path.dirname(output_obj_path), exist_ok=True)
-    with open(output_obj_path, "w") as f:
-        f.writelines(vertices)
-        f.writelines(faces)
+    with open(output_obj_path, "w") as obj:
+        obj.writelines(vertices)
+        obj.writelines(normals)
+        obj.writelines(faces)
 
-    print(f"[OK] OBJ mesh created: {output_obj_path}")
-    print(f"    Total vertices: {len(vertices)}")
-    print(f"    Total faces: {len(faces)}")
+    print("[OK] OBJ mesh created at:", output_obj_path)
+    print(f"     Vertices: {len(vertices)}")
+    print(f"     Normals:  {len(normals)}")
+    print(f"     Faces:    {len(faces)}")
 
+# ================================================================
+# CREATE model.sdf AND model.config
+# ================================================================
 
-def create_model_sdf(model_dir, mesh_rel_path):
-    """Create model.sdf for the combined asphalt mesh."""
+def create_model_sdf(model_dir, mesh_rel):
     sdf_path = os.path.join(model_dir, "model.sdf")
-    os.makedirs(model_dir, exist_ok=True)
 
-    sdf = f"""<?xml version="1.6" ?>
+    sdf_xml = f"""<?xml version="1.6"?>
 <sdf version="1.8">
   <model name="roads_mesh">
     <static>true</static>
     <link name="road_link">
-      <visual name="road_visual">
+      <visual name="vis">
         <geometry>
           <mesh>
-            <uri>model://roads_mesh/{mesh_rel_path}</uri>
+            <uri>model://roads_mesh/{mesh_rel}</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.2 0.2 0.2 1</ambient>
           <diffuse>0.3 0.3 0.3 1</diffuse>
+          <ambient>0.2 0.2 0.2 1</ambient>
         </material>
       </visual>
-      <collision name="road_collision">
+      <collision name="col">
         <geometry>
           <mesh>
-            <uri>model://roads_mesh/{mesh_rel_path}</uri>
+            <uri>model://roads_mesh/{mesh_rel}</uri>
           </mesh>
         </geometry>
       </collision>
@@ -89,15 +122,37 @@ def create_model_sdf(model_dir, mesh_rel_path):
   </model>
 </sdf>
 """
+
     with open(sdf_path, "w") as f:
-        f.write(sdf)
+        f.write(sdf_xml)
 
-    print(f"[OK] Model SDF created: {sdf_path}")
+    print("[OK] model.sdf created:", sdf_path)
 
+
+def create_model_config(model_dir):
+    cfg_path = os.path.join(model_dir, "model.config")
+
+    cfg_xml = """<?xml version="1.0"?>
+<model>
+  <name>roads_mesh</name>
+  <version>1.0</version>
+  <sdf version="1.8">model.sdf</sdf>
+  <author><name>map2gazebo</name></author>
+  <description>Merged polygon-based asphalt mesh</description>
+</model>
+"""
+
+    with open(cfg_path, "w") as f:
+        f.write(cfg_xml)
+
+    print("[OK] model.config created:", cfg_path)
+
+# ================================================================
+# WORLD FILE
+# ================================================================
 
 def create_world_sdf(output_world_path):
-    """Create the main bari_world.sdf that includes the asphalt mesh."""
-    world_sdf = f"""<?xml version="1.6" ?>
+    world_xml = """<?xml version="1.6"?>
 <sdf version="1.8">
   <world name="bari_world">
 
@@ -124,43 +179,43 @@ def create_world_sdf(output_world_path):
 """
     os.makedirs(os.path.dirname(output_world_path), exist_ok=True)
     with open(output_world_path, "w") as f:
-        f.write(world_sdf)
+        f.write(world_xml)
 
-    print(f"[OK] World SDF created: {output_world_path}")
+    print("[OK] World SDF saved:", output_world_path)
 
-
-# ----------------------------------
+# ================================================================
 # MAIN
-# ----------------------------------
+# ================================================================
 
 def main():
     if len(sys.argv) != 3:
-        print("Usage: python build_sdf_roads.py <road_polygons.json> <output_world.sdf>")
+        print("Usage: python build_sdf_roads.py <road_polygons_merged.json> <output_world.sdf>")
         sys.exit(1)
 
-    polygons_file = sys.argv[1]
-    output_world = sys.argv[2]
+    json_in = sys.argv[1]
+    world_out = sys.argv[2]
 
-    print("[INFO] Loading polygons:", polygons_file)
-    with open(polygons_file, "r") as f:
-        poly_data = json.load(f)
+    print("[INFO] Loading merged polygons:", json_in)
+    with open(json_in, "r") as f:
+        raw = json.load(f)
 
-    # Extract polygons
-    polygons = []
-    for wid, entry in poly_data.items():
-        polygons.append(entry["polygon"])
+    # Polygons = list of lists of polygons
+    # Because multi-polygon roads may contain multiple merged polys
+    polygons = [
+        entry["merged_polygons"]
+        for entry in raw.values()
+    ]
 
-    # Build merged mesh
     model_dir = "worlds/models/roads_mesh"
-    mesh_path = "meshes/roads_mesh.obj"
-    mesh_full_path = os.path.join(model_dir, mesh_path)
+    mesh_rel = "meshes/roads_mesh.obj"
+    mesh_out = os.path.join(model_dir, mesh_rel)
 
-    build_merged_obj(polygons, mesh_full_path)
-    create_model_sdf(model_dir, mesh_path)
-    create_world_sdf(output_world)
+    build_obj_from_polygons(polygons, mesh_out)
+    create_model_sdf(model_dir, mesh_rel)
+    create_model_config(model_dir)
+    create_world_sdf(world_out)
 
-    print("[DONE] SDF world ready.")
-
+    print("[DONE] SDF world is ready.")
 
 if __name__ == "__main__":
     main()
