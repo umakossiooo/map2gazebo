@@ -22,3 +22,6 @@ chmod +x scripts/compute_polygons.py
 
 python scripts/compute_polygons.py maps/edges.json maps/road_polygons.json
 
+chmod +x scripts/build_sdf_roads.py
+
+python scripts/build_sdf_roads.py maps/road_polygons.json worlds/bari_world.sdf
