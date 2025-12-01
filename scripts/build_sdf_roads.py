@@ -171,6 +171,11 @@ def create_world_sdf(output_world_path):
 
     <gravity>0 0 -9.81</gravity>
 
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.8 0.8 0.8 1</background>
+    </scene>
+
     <include>
       <uri>model://roads_mesh</uri>
     </include>
@@ -193,6 +198,10 @@ def create_world_sdf(output_world_path):
               <size>2000 2000</size>
             </plane>
           </geometry>
+          <material>
+            <diffuse>0.3 0.3 0.3 1</diffuse>
+            <ambient>0.2 0.2 0.2 1</ambient>
+          </material>
         </visual>
       </link>
     </model>
