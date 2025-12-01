@@ -28,4 +28,4 @@ python scripts/merge_polygons.py maps/road_polygons.json maps/road_polygons_merg
 
 chmod +x scripts/build_sdf_roads.py
 
-python scripts/build_sdf_roads.py maps/road_polygons.json worlds/bari_world.sdf
+python scripts/build_sdf_roads.py maps/road_polygons_merged.json worlds/bari_world.sdf
