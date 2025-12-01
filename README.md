@@ -17,3 +17,5 @@ python scripts/convert_xml_to_enu.py maps/map.xml maps/map.json auto
 chmod +x scripts/compute_edges.py
 
 python scripts/compute_edges.py maps/map.json maps/edges.json
+
+chmod +x scripts/compute_polygons.py
