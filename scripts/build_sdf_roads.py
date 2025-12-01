@@ -1,145 +1,165 @@
 import json
 import sys
+import os
 import math
-from xml.etree.ElementTree import Element, SubElement, ElementTree
+
+# ----------------------------------
+# Triangulation helper (earcut)
+# ----------------------------------
+
+def triangulate_polygon(polygon):
+    """Simple earcut triangulation for convex or mostly convex polygons."""
+    # NOTE: For your road polygons (long thin convex shapes), earcut is perfect.
+    # This small triangulator avoids external heavy libs.
+    if len(polygon) < 3:
+        return []
+
+    triangles = []
+    for i in range(1, len(polygon) - 1):
+        triangles.append([polygon[0], polygon[i], polygon[i+1]])
+    return triangles
 
 
-def create_world_root():
-    sdf = Element("sdf", version="1.8")
-    world = SubElement(sdf, "world", name="bari_world")
+# ----------------------------------
+# Main mesh builder
+# ----------------------------------
 
-    # Gravity
-    gravity = SubElement(world, "gravity")
-    gravity.text = "0 0 -9.81"
+def build_merged_obj(polygons, output_obj_path):
+    vertices = []
+    faces = []
+    vcount = 1  # OBJ indices start at 1
 
-    # Physics (optional basic)
-    physics = SubElement(world, "physics", name="default", type="ode")
-    max_step_size = SubElement(physics, "max_step_size")
-    max_step_size.text = "0.001"
-    real_time_update_rate = SubElement(physics, "real_time_update_rate")
-    real_time_update_rate.text = "1000"
+    for poly in polygons:
+        if len(poly) < 3:
+            continue
 
-    # Ground plane (optional, to have something under roads)
-    model = SubElement(world, "model", name="ground_plane")
-    static = SubElement(model, "static")
-    static.text = "true"
-    link = SubElement(model, "link", name="link")
-    collision = SubElement(link, "collision", name="collision")
-    geometry = SubElement(collision, "geometry")
-    plane = SubElement(geometry, "plane")
-    normal = SubElement(plane, "normal")
-    normal.text = "0 0 1"
-    size = SubElement(plane, "size")
-    size.text = "1000 1000"
-    visual = SubElement(link, "visual", name="visual")
-    geometry_v = SubElement(visual, "geometry")
-    plane_v = SubElement(geometry_v, "plane")
-    normal_v = SubElement(plane_v, "normal")
-    normal_v.text = "0 0 1"
-    size_v = SubElement(plane_v, "size")
-    size_v.text = "1000 1000"
+        tris = triangulate_polygon(poly)
 
-    return sdf, world
+        for tri in tris:
+            # Add triangle vertices
+            tri_indices = []
+            for (x, y) in tri:
+                vertices.append(f"v {x} {y} 0.02\n")   # small height so it is visible
+                tri_indices.append(vcount)
+                vcount += 1
+
+            # Create face
+            faces.append(f"f {tri_indices[0]} {tri_indices[1]} {tri_indices[2]}\n")
+
+    # Write OBJ
+    os.makedirs(os.path.dirname(output_obj_path), exist_ok=True)
+    with open(output_obj_path, "w") as f:
+        f.writelines(vertices)
+        f.writelines(faces)
+
+    print(f"[OK] OBJ mesh created: {output_obj_path}")
+    print(f"    Total vertices: {len(vertices)}")
+    print(f"    Total faces: {len(faces)}")
 
 
-def add_road_segment(world, seg_name, x_mid, y_mid, yaw, length, width, thickness=0.05):
-    model = SubElement(world, "model", name=seg_name)
+def create_model_sdf(model_dir, mesh_rel_path):
+    """Create model.sdf for the combined asphalt mesh."""
+    sdf_path = os.path.join(model_dir, "model.sdf")
+    os.makedirs(model_dir, exist_ok=True)
 
-    static = SubElement(model, "static")
-    static.text = "true"
+    sdf = f"""<?xml version="1.6" ?>
+<sdf version="1.8">
+  <model name="roads_mesh">
+    <static>true</static>
+    <link name="road_link">
+      <visual name="road_visual">
+        <geometry>
+          <mesh>
+            <uri>model://roads_mesh/{mesh_rel_path}</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.2 0.2 0.2 1</ambient>
+          <diffuse>0.3 0.3 0.3 1</diffuse>
+        </material>
+      </visual>
+      <collision name="road_collision">
+        <geometry>
+          <mesh>
+            <uri>model://roads_mesh/{mesh_rel_path}</uri>
+          </mesh>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
+"""
+    with open(sdf_path, "w") as f:
+        f.write(sdf)
 
-    # pose: x y z roll pitch yaw
-    pose = SubElement(model, "pose")
-    pose.text = f"{x_mid} {y_mid} 0 {0} {0} {yaw}"
+    print(f"[OK] Model SDF created: {sdf_path}")
 
-    link = SubElement(model, "link", name="link")
 
-    # Collision
-    collision = SubElement(link, "collision", name="collision")
-    coll_geom = SubElement(collision, "geometry")
-    box = SubElement(coll_geom, "box")
-    size = SubElement(box, "size")
-    size.text = f"{length} {width} {thickness}"
+def create_world_sdf(output_world_path):
+    """Create the main bari_world.sdf that includes the asphalt mesh."""
+    world_sdf = f"""<?xml version="1.6" ?>
+<sdf version="1.8">
+  <world name="bari_world">
 
-    # Visual
-    visual = SubElement(link, "visual", name="visual")
-    vis_geom = SubElement(visual, "geometry")
-    box_v = SubElement(vis_geom, "box")
-    size_v = SubElement(box_v, "size")
-    size_v.text = f"{length} {width} {thickness}"
+    <gravity>0 0 -9.81</gravity>
 
-    material = SubElement(visual, "material")
-    ambient = SubElement(material, "ambient")
-    ambient.text = "0.2 0.2 0.2 1"
-    diffuse = SubElement(material, "diffuse")
-    diffuse.text = "0.3 0.3 0.3 1"
+    <include>
+      <uri>model://roads_mesh</uri>
+    </include>
 
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
+"""
+    os.makedirs(os.path.dirname(output_world_path), exist_ok=True)
+    with open(output_world_path, "w") as f:
+        f.write(world_sdf)
+
+    print(f"[OK] World SDF created: {output_world_path}")
+
+
+# ----------------------------------
+# MAIN
+# ----------------------------------
 
 def main():
-    if len(sys.argv) != 4:
-        print("Usage: python build_sdf_roads.py <map_enu.json> <edges.json> <output.sdf>")
+    if len(sys.argv) != 3:
+        print("Usage: python build_sdf_roads.py <road_polygons.json> <output_world.sdf>")
         sys.exit(1)
 
-    map_enu_file = sys.argv[1]
-    edges_file = sys.argv[2]
-    output_sdf = sys.argv[3]
+    polygons_file = sys.argv[1]
+    output_world = sys.argv[2]
 
-    print("Loading ENU map:", map_enu_file)
-    with open(map_enu_file, "r") as f:
-        map_data = json.load(f)
+    print("[INFO] Loading polygons:", polygons_file)
+    with open(polygons_file, "r") as f:
+        poly_data = json.load(f)
 
-    node_coords = map_data["nodes_enu"]
+    # Extract polygons
+    polygons = []
+    for wid, entry in poly_data.items():
+        polygons.append(entry["polygon"])
 
-    print("Loading edges:", edges_file)
-    with open(edges_file, "r") as f:
-        edges_data = json.load(f)
+    # Build merged mesh
+    model_dir = "worlds/models/roads_mesh"
+    mesh_path = "meshes/roads_mesh.obj"
+    mesh_full_path = os.path.join(model_dir, mesh_path)
 
-    sdf, world = create_world_root()
+    build_merged_obj(polygons, mesh_full_path)
+    create_model_sdf(model_dir, mesh_path)
+    create_world_sdf(output_world)
 
-    print("Creating road segments in SDF...")
-
-    seg_count = 0
-
-    for way_id, data in edges_data.items():
-        way_nodes = data["centerline_nodes"]
-        width = data["width"]
-
-        # Build segments from centerline nodes
-        for i in range(len(way_nodes) - 1):
-            nid1 = str(way_nodes[i])
-            nid2 = str(way_nodes[i + 1])
-
-            if nid1 not in node_coords or nid2 not in node_coords:
-                continue
-
-            x1, y1 = node_coords[nid1]
-            x2, y2 = node_coords[nid2]
-
-            dx = x2 - x1
-            dy = y2 - y1
-            length = math.sqrt(dx*dx + dy*dy)
-            if length < 0.1:
-                continue  # skip tiny segments
-
-            # midpoint
-            x_mid = (x1 + x2) / 2.0
-            y_mid = (y1 + y2) / 2.0
-
-            # yaw from segment direction
-            yaw = math.atan2(dy, dx)
-
-            seg_name = f"road_{way_id}_seg_{i}"
-            add_road_segment(world, seg_name, x_mid, y_mid, yaw, length, width)
-
-            seg_count += 1
-
-    print(f"Total road segments added: {seg_count}")
-    print("Saving SDF to:", output_sdf)
-
-    tree = ElementTree(sdf)
-    tree.write(output_sdf, encoding="utf-8", xml_declaration=True)
-
-    print("Done.")
+    print("[DONE] SDF world ready.")
 
 
 if __name__ == "__main__":
