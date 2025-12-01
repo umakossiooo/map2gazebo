@@ -8,6 +8,7 @@ import math
 # ================================================================
 
 def triangulate_polygon(poly):
+    """Triangulate a polygon using a simple fan from the first vertex."""
     if len(poly) < 3:
         return []
     triangles = []
@@ -15,11 +16,13 @@ def triangulate_polygon(poly):
         triangles.append([poly[0], poly[i], poly[i+1]])
     return triangles
 
+
 # ================================================================
 # NORMAL CALCULATION
 # ================================================================
 
 def compute_normal(p1, p2, p3):
+    """Compute a unit normal for triangle (p1, p2, p3)."""
     ux, uy, uz = p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]
     vx, vy, vz = p3[0]-p1[0], p3[1]-p1[1], p3[2]-p1[2]
 
@@ -31,13 +34,20 @@ def compute_normal(p1, p2, p3):
     if length == 0:
         return 0.0, 0.0, 1.0
 
-    return nx/length, ny/length, nz/length
+    return nx / length, ny / length, nz / length
+
 
 # ================================================================
 # BUILD OBJ MESH (supports MultiPolygon)
 # ================================================================
 
 def build_obj_from_polygons(polygons, output_obj_path):
+    """
+    Build a single OBJ mesh from all road polygons.
+
+    polygons: list of entries, each entry is a list of polygons
+              (because a road can be a MultiPolygon).
+    """
     print("[INFO] Building OBJ asphalt mesh with normals...")
 
     vertices = []
@@ -47,9 +57,8 @@ def build_obj_from_polygons(polygons, output_obj_path):
     v_idx = 1
     n_idx = 1
 
-    for group in polygons:  # each road may contain multiple merged polys
-        for poly in group:
-            # poly = list of (x,y)
+    for group in polygons:         # each road's merged_polygons
+        for poly in group:         # each poly is a list of [x, y]
             if len(poly) < 3:
                 continue
 
@@ -62,14 +71,17 @@ def build_obj_from_polygons(polygons, output_obj_path):
 
                 nx, ny, nz = compute_normal(p1, p2, p3)
 
+                # vertices
                 vertices.append(f"v {p1[0]} {p1[1]} {p1[2]}\n")
                 vertices.append(f"v {p2[0]} {p2[1]} {p2[2]}\n")
                 vertices.append(f"v {p3[0]} {p3[1]} {p3[2]}\n")
 
+                # normals (one per vertex)
                 normals.append(f"vn {nx} {ny} {nz}\n")
                 normals.append(f"vn {nx} {ny} {nz}\n")
                 normals.append(f"vn {nx} {ny} {nz}\n")
 
+                # face line with vertex//normal indices
                 faces.append(
                     f"f {v_idx}//{n_idx} {v_idx+1}//{n_idx+1} {v_idx+2}//{n_idx+2}\n"
                 )
@@ -87,6 +99,7 @@ def build_obj_from_polygons(polygons, output_obj_path):
     print(f"     Vertices: {len(vertices)}")
     print(f"     Normals:  {len(normals)}")
     print(f"     Faces:    {len(faces)}")
+
 
 # ================================================================
 # CREATE model.sdf AND model.config
@@ -122,7 +135,7 @@ def create_model_sdf(model_dir, mesh_rel):
   </model>
 </sdf>
 """
-
+    os.makedirs(model_dir, exist_ok=True)
     with open(sdf_path, "w") as f:
         f.write(sdf_xml)
 
@@ -141,11 +154,11 @@ def create_model_config(model_dir):
   <description>Merged polygon-based asphalt mesh</description>
 </model>
 """
-
     with open(cfg_path, "w") as f:
         f.write(cfg_xml)
 
     print("[OK] model.config created:", cfg_path)
+
 
 # ================================================================
 # WORLD FILE
@@ -166,10 +179,20 @@ def create_world_sdf(output_world_path):
       <static>true</static>
       <link name="link">
         <collision name="collision">
-          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>2000 2000</size>
+            </plane>
+          </geometry>
         </collision>
         <visual name="visual">
-          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>2000 2000</size>
+            </plane>
+          </geometry>
         </visual>
       </link>
     </model>
@@ -182,6 +205,7 @@ def create_world_sdf(output_world_path):
         f.write(world_xml)
 
     print("[OK] World SDF saved:", output_world_path)
+
 
 # ================================================================
 # MAIN
@@ -199,12 +223,8 @@ def main():
     with open(json_in, "r") as f:
         raw = json.load(f)
 
-    # Polygons = list of lists of polygons
-    # Because multi-polygon roads may contain multiple merged polys
-    polygons = [
-        entry["merged_polygons"]
-        for entry in raw.values()
-    ]
+    # Each entry has "merged_polygons": [ [ [x,y], ... ], ... ]
+    polygons = [entry["merged_polygons"] for entry in raw.values()]
 
     model_dir = "worlds/models/roads_mesh"
     mesh_rel = "meshes/roads_mesh.obj"
@@ -216,6 +236,7 @@ def main():
     create_world_sdf(world_out)
 
     print("[DONE] SDF world is ready.")
+
 
 if __name__ == "__main__":
     main()
