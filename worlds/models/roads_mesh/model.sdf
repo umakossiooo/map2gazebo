@@ -1,20 +1,20 @@
-<?xml version="1.6" ?>
+<?xml version="1.6"?>
 <sdf version="1.8">
   <model name="roads_mesh">
     <static>true</static>
     <link name="road_link">
-      <visual name="road_visual">
+      <visual name="vis">
         <geometry>
           <mesh>
             <uri>model://roads_mesh/meshes/roads_mesh.obj</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.2 0.2 0.2 1</ambient>
           <diffuse>0.3 0.3 0.3 1</diffuse>
+          <ambient>0.2 0.2 0.2 1</ambient>
         </material>
       </visual>
-      <collision name="road_collision">
+      <collision name="col">
         <geometry>
           <mesh>
             <uri>model://roads_mesh/meshes/roads_mesh.obj</uri>
