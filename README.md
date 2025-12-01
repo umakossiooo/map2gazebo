@@ -19,3 +19,6 @@ chmod +x scripts/compute_edges.py
 python scripts/compute_edges.py maps/map.json maps/edges.json
 
 chmod +x scripts/compute_polygons.py
+
+python scripts/compute_polygons.py maps/edges.json maps/road_polygons.json
+
