@@ -2,3 +2,4 @@ osmium
 lxml
 pyproj
 numpy
+shapely
