@@ -1,0 +1,24 @@
+<?xml version="1.6" ?>
+<sdf version="1.8">
+  <world name="bari_world">
+
+    <gravity>0 0 -9.81</gravity>
+
+    <include>
+      <uri>model://roads_mesh</uri>
+    </include>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
