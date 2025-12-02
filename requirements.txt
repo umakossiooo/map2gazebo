@@ -3,3 +3,4 @@ lxml
 pyproj
 numpy
 shapely
+shapely>=2.0.0
