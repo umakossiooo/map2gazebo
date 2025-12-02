@@ -30,6 +30,6 @@ chmod +x scripts/combine_roads_global.py
 
 python scripts/combine_roads_global.py maps/road_polygons_merged.json maps/roads_global.json
 
-chmod +x scripts/build_sdf_roads.py
+chmod +x scripts/build_sdf_global_roads.py
 
-python scripts/build_sdf_roads.py maps/road_polygons_merged.json worlds/bari_world.sdf
+python scripts/build_sdf_global_roads.py maps/roads_global.json worlds/bari_world.sdf
