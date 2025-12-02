@@ -26,10 +26,6 @@ chmod +x scripts/merge_polygons.py
 
 python scripts/merge_polygons.py maps/road_polygons.json maps/road_polygons_merged.json
 
-chmod +x scripts/combine_roads_global.py
+chmod +x scripts/build_sdf_roads_individual.py
 
-python scripts/combine_roads_global.py maps/road_polygons_merged.json maps/roads_global.json
-
-chmod +x scripts/build_sdf_global_roads.py
-
-python scripts/build_sdf_global_roads.py maps/roads_global.json worlds/bari_world.sdf
+python scripts/build_sdf_roads_individual.py maps/road_polygons_merged.json worlds/bari_world.sdf
