@@ -1,6 +1,6 @@
 <?xml version="1.6"?>
 <sdf version="1.8">
-  <world name="bari_world">
+  <world name="map">
 
     <gravity>0 0 -9.81</gravity>
 
