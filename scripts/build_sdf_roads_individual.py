@@ -173,8 +173,8 @@ def create_model_sdf(model_dir: Path, mesh_rel: str):
           </mesh>
         </geometry>
         <material>
-          <diffuse>0.6 0.6 0.6 1</diffuse>
-          <ambient>0.4 0.4 0.4 1</ambient>
+          <diffuse>0.4 0.4 0.4 1</diffuse>
+          <ambient>0.3 0.3 0.3 1</ambient>
         </material>
       </visual>
       <collision name="col">
@@ -216,7 +216,6 @@ def create_model_config(model_dir: Path):
 # ================================================================
 # WORLD SDF
 # ================================================================
-
 def create_world_sdf(output_world_path: Path, world_name: str):
     world_xml = """<?xml version="1.6"?>
 <sdf version="1.8">
