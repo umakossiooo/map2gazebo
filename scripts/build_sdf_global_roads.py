@@ -1,46 +1,51 @@
+#!/usr/bin/env python3
+"""
+build_sdf_global_roads.py
+
+Genera un mesh OBJ y un mundo SDF a partir de polygons globales
+(fusionados) en maps/roads_global.json.
+
+Uso:
+  python scripts/build_sdf_global_roads.py maps/roads_global.json worlds/bari_world.sdf
+"""
+
 import json
 import sys
 import os
 import math
+from pathlib import Path
 
 # ================================================================
-# TRIANGULATION (fan from first vertex)
+# TRIANGULACIÓN
 # ================================================================
 
 def triangulate_polygon(poly):
     """
-    Triangulate polygon in CCW orientation.
-    We enforce CCW because Gazebo expects front faces upward.
+    Triangula un polígono usando fan triangulation desde el primer vértice.
+    Fuerza orientación CCW para que las normales apunten hacia arriba.
     """
     if len(poly) < 3:
         return []
 
-    # Force CCW orientation
-    # Shoelace formula
-    area = 0
-    for i in range(len(poly)):
+    # Shoelace para detectar orientación
+    area = 0.0
+    n = len(poly)
+    for i in range(n):
         x1, y1 = poly[i]
-        x2, y2 = poly[(i+1) % len(poly)]
-        area += x1*y2 - x2*y1
+        x2, y2 = poly[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
 
-    if area < 0:
-        # polygon is clockwise → reverse it
+    if area < 0:  # CW -> invertimos a CCW
         poly = list(reversed(poly))
 
-    # fan triangulation
-    triangles = []
+    tris = []
     for i in range(1, len(poly) - 1):
-        triangles.append([poly[0], poly[i], poly[i+1]])
-
-    return triangles
-
-# ================================================================
-# NORMAL CALCULATION
-# ================================================================
+        tris.append([poly[0], poly[i], poly[i + 1]])
+    return tris
 
 
 def compute_normal(p1, p2, p3):
-    """Compute upward-facing unit normal."""
+    """Normal unitaria hacia +Z."""
     ux, uy, uz = p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]
     vx, vy, vz = p3[0]-p1[0], p3[1]-p1[1], p3[2]-p1[2]
 
@@ -56,7 +61,6 @@ def compute_normal(p1, p2, p3):
     ny /= length
     nz /= length
 
-    # FORCE normals up always
     if nz < 0:
         nx, ny, nz = -nx, -ny, -nz
 
@@ -64,17 +68,11 @@ def compute_normal(p1, p2, p3):
 
 
 # ================================================================
-# BUILD OBJ MESH (supports MultiPolygon)
+# CONSTRUCCIÓN DEL OBJ GLOBAL
 # ================================================================
 
-def build_obj_from_polygons(polygons, output_obj_path):
-    """
-    Build a single OBJ mesh from all road polygons.
-
-    polygons: list of entries, each entry is a list of polygons
-              (because a road can be a MultiPolygon).
-    """
-    print("[INFO] Building OBJ asphalt mesh with normals...")
+def build_obj_from_global(polygons, output_obj_path: Path):
+    print("[INFO] Building global roads OBJ mesh with normals...")
 
     vertices = []
     normals = []
@@ -82,58 +80,54 @@ def build_obj_from_polygons(polygons, output_obj_path):
 
     v_idx = 1
     n_idx = 1
-    ROAD_Z = 0.01
+    Z_ROAD = 0.05  # un poco por encima del ground plane
 
-    for group in polygons:         # each road's merged_polygons
-        for poly in group:         # each poly is a list of [x, y]
-            if len(poly) < 3:
-                continue
+    for poly in polygons:
+        if len(poly) < 3:
+            continue
 
-            triangles = triangulate_polygon(poly)
+        triangles = triangulate_polygon(poly)
 
-            for tri in triangles:
-                p1 = (tri[0][0], tri[0][1], ROAD_Z)
-                p2 = (tri[1][0], tri[1][1], ROAD_Z)
-                p3 = (tri[2][0], tri[2][1], ROAD_Z)
+        for tri in triangles:
+            p1 = (tri[0][0], tri[0][1], Z_ROAD)
+            p2 = (tri[1][0], tri[1][1], Z_ROAD)
+            p3 = (tri[2][0], tri[2][1], Z_ROAD)
 
-                nx, ny, nz = compute_normal(p1, p2, p3)
+            nx, ny, nz = compute_normal(p1, p2, p3)
 
-                # vertices
-                vertices.append(f"v {p1[0]} {p1[1]} {p1[2]}\n")
-                vertices.append(f"v {p2[0]} {p2[1]} {p2[2]}\n")
-                vertices.append(f"v {p3[0]} {p3[1]} {p3[2]}\n")
+            vertices.append(f"v {p1[0]} {p1[1]} {p1[2]}\n")
+            vertices.append(f"v {p2[0]} {p2[1]} {p2[2]}\n")
+            vertices.append(f"v {p3[0]} {p3[1]} {p3[2]}\n")
 
-                # normals (one per vertex)
-                normals.append(f"vn {nx} {ny} {nz}\n")
-                normals.append(f"vn {nx} {ny} {nz}\n")
-                normals.append(f"vn {nx} {ny} {nz}\n")
+            normals.append(f"vn {nx} {ny} {nz}\n")
+            normals.append(f"vn {nx} {ny} {nz}\n")
+            normals.append(f"vn {nx} {ny} {nz}\n")
 
-                # face line with vertex//normal indices
-                faces.append(
-                    f"f {v_idx}//{n_idx} {v_idx+1}//{n_idx+1} {v_idx+2}//{n_idx+2}\n"
-                )
+            faces.append(
+                f"f {v_idx}//{n_idx} {v_idx+1}//{n_idx+1} {v_idx+2}//{n_idx+2}\n"
+            )
 
-                v_idx += 3
-                n_idx += 3
+            v_idx += 3
+            n_idx += 3
 
-    os.makedirs(os.path.dirname(output_obj_path), exist_ok=True)
-    with open(output_obj_path, "w") as obj:
+    output_obj_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_obj_path.open("w") as obj:
         obj.writelines(vertices)
         obj.writelines(normals)
         obj.writelines(faces)
 
-    print("[OK] OBJ mesh created at:", output_obj_path)
+    print(f"[OK] OBJ mesh created at: {output_obj_path}")
     print(f"     Vertices: {len(vertices)}")
-    print(f"     Normals:  {len(normals)}")
-    print(f"     Faces:    {len(faces)}")
+    print(f"     Normals : {len(normals)}")
+    print(f"     Faces   : {len(faces)}")
 
 
 # ================================================================
-# CREATE model.sdf AND model.config
+# model.sdf y model.config
 # ================================================================
 
-def create_model_sdf(model_dir, mesh_rel):
-    sdf_path = os.path.join(model_dir, "model.sdf")
+def create_model_sdf(model_dir: Path, mesh_rel: str):
+    sdf_path = model_dir / "model.sdf"
 
     sdf_xml = f"""<?xml version="1.6"?>
 <sdf version="1.8">
@@ -147,8 +141,8 @@ def create_model_sdf(model_dir, mesh_rel):
           </mesh>
         </geometry>
         <material>
-          <diffuse>0.3 0.3 0.3 1</diffuse>
-          <ambient>0.2 0.2 0.2 1</ambient>
+          <diffuse>0.6 0.6 0.6 1</diffuse>
+          <ambient>0.4 0.4 0.4 1</ambient>
         </material>
       </visual>
       <collision name="col">
@@ -162,15 +156,15 @@ def create_model_sdf(model_dir, mesh_rel):
   </model>
 </sdf>
 """
-    os.makedirs(model_dir, exist_ok=True)
-    with open(sdf_path, "w") as f:
+    model_dir.mkdir(parents=True, exist_ok=True)
+    with sdf_path.open("w") as f:
         f.write(sdf_xml)
 
-    print("[OK] model.sdf created:", sdf_path)
+    print(f"[OK] model.sdf created: {sdf_path}")
 
 
-def create_model_config(model_dir):
-    cfg_path = os.path.join(model_dir, "model.config")
+def create_model_config(model_dir: Path):
+    cfg_path = model_dir / "model.config"
 
     cfg_xml = """<?xml version="1.0"?>
 <model>
@@ -178,20 +172,20 @@ def create_model_config(model_dir):
   <version>1.0</version>
   <sdf version="1.8">model.sdf</sdf>
   <author><name>map2gazebo</name></author>
-  <description>Merged polygon-based asphalt mesh</description>
+  <description>Global fused asphalt mesh</description>
 </model>
 """
-    with open(cfg_path, "w") as f:
+    with cfg_path.open("w") as f:
         f.write(cfg_xml)
 
-    print("[OK] model.config created:", cfg_path)
+    print(f"[OK] model.config created: {cfg_path}")
 
 
 # ================================================================
-# WORLD FILE
+# WORLD SDF
 # ================================================================
 
-def create_world_sdf(output_world_path):
+def create_world_sdf(output_world_path: Path):
     world_xml = """<?xml version="1.6"?>
 <sdf version="1.8">
   <world name="bari_world">
@@ -203,7 +197,6 @@ def create_world_sdf(output_world_path):
       <background>0.9 0.9 0.9 1</background>
     </scene>
 
-    <!-- Luz tipo sol -->
     <light name="sun" type="directional">
       <pose>0 0 50 0 0 0</pose>
       <diffuse>1 1 1 1</diffuse>
@@ -217,22 +210,19 @@ def create_world_sdf(output_world_path):
       <direction>-0.5 0.5 -1</direction>
     </light>
 
-    <!-- Cámara inicial desde arriba -->
     <gui>
       <camera name="default">
         <pose>0 0 80 0 0 0</pose>
       </camera>
     </gui>
 
-    <!-- Malla de carreteras -->
     <include>
       <uri>model://roads_mesh</uri>
     </include>
 
-    <!-- Ground plane un poco por debajo -->
     <model name="ground_plane">
       <static>true</static>
-      <pose>0 0 -0.05 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry>
@@ -260,11 +250,11 @@ def create_world_sdf(output_world_path):
   </world>
 </sdf>
 """
-    os.makedirs(os.path.dirname(output_world_path), exist_ok=True)
-    with open(output_world_path, "w") as f:
+    output_world_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_world_path.open("w") as f:
         f.write(world_xml)
 
-    print("[OK] World SDF saved:", output_world_path)
+    print(f"[OK] World SDF saved: {output_world_path}")
 
 
 # ================================================================
@@ -273,29 +263,36 @@ def create_world_sdf(output_world_path):
 
 def main():
     if len(sys.argv) != 3:
-        print("Usage: python build_sdf_roads.py <road_polygons_merged.json> <output_world.sdf>")
+        print("Usage: python build_sdf_global_roads.py <roads_global.json> <output_world.sdf>")
         sys.exit(1)
 
-    json_in = sys.argv[1]
-    world_out = sys.argv[2]
+    json_in = Path(sys.argv[1])
+    world_out = Path(sys.argv[2])
 
-    print("[INFO] Loading merged polygons:", json_in)
-    with open(json_in, "r") as f:
-        raw = json.load(f)
+    print(f"[INFO] Loading global polygons from: {json_in}")
+    with json_in.open("r") as f:
+        data = json.load(f)
 
-    # Each entry has "merged_polygons": [ [ [x,y], ... ], ... ]
-    polygons = [entry["merged_polygons"] for entry in raw.values()]
+    polygons = data.get("polygons", [])
+    if not polygons:
+        print("[ERROR] No polygons[] in roads_global.json")
+        sys.exit(1)
 
-    model_dir = "worlds/models/roads_mesh"
+    model_dir = Path("worlds/models/roads_mesh")
     mesh_rel = "meshes/roads_mesh.obj"
-    mesh_out = os.path.join(model_dir, mesh_rel)
+    mesh_out = model_dir / mesh_rel
 
-    build_obj_from_polygons(polygons, mesh_out)
+    if model_dir.exists():
+        # limpia viejo
+        import shutil
+        shutil.rmtree(model_dir)
+
+    build_obj_from_global(polygons, mesh_out)
     create_model_sdf(model_dir, mesh_rel)
     create_model_config(model_dir)
     create_world_sdf(world_out)
 
-    print("[DONE] SDF world is ready.")
+    print("[DONE] Global SDF world is ready.")
 
 
 if __name__ == "__main__":
