@@ -4,46 +4,62 @@ build_sdf_roads_individual.py
 
 Genera un mesh OBJ y un mundo SDF a partir de TODOS los polígonos de calles
 de maps/road_polygons_merged.json, triangulando cada polígono de forma
-individual (no se hace unary_union global).
+individual para mantener la forma original de cada calle.
 
 Uso:
   python scripts/build_sdf_roads_individual.py maps/road_polygons_merged.json worlds/bari_world.sdf
 """
 
+import argparse
 import json
 import sys
 import math
 from pathlib import Path
 
+from shapely.geometry import Polygon
+from shapely.ops import triangulate as shapely_triangulate
+
 
 # ================================================================
-# TRIANGULACIÓN (fan + orientación CCW)
+# TRIANGULACIÓN (con Shapely para soportar formas cóncavas)
 # ================================================================
 
 def triangulate_polygon(poly):
-    """
-    Triangula un polígono usando fan triangulation desde el primer vértice.
-    Fuerza orientación CCW (shoelace) para que las normales apunten hacia +Z.
-    """
-    if len(poly) < 3:
+    """Triangula polígonos cóncavos usando shapely.ops.triangulate."""
+    if isinstance(poly, Polygon):
+        shapely_poly = poly
+    else:
+        if len(poly) < 3:
+            return []
+        try:
+            shapely_poly = Polygon(poly)
+        except Exception as exc:
+            print(f"[WARN] Could not build shapely Polygon for triangulation ({exc})")
+            return []
+
+    if shapely_poly.is_empty:
         return []
 
-    # Shoelace para detectar orientación
-    area = 0.0
-    n = len(poly)
-    for i in range(n):
-        x1, y1 = poly[i]
-        x2, y2 = poly[(i + 1) % n]
-        area += x1 * y2 - x2 * y1
+    if not shapely_poly.is_valid:
+        shapely_poly = shapely_poly.buffer(0)
+        if shapely_poly.is_empty:
+            print("[WARN] Polygon became empty after buffer(0) fix; skipping")
+            return []
 
-    # Si el área es negativa → está CW → invertimos a CCW
-    if area < 0:
-        poly = list(reversed(poly))
+    triangles = []
+    for tri in shapely_triangulate(shapely_poly):
+        # representative_point always inside triangle, good for contains check
+        if not shapely_poly.contains(tri.representative_point()):
+            continue
 
-    tris = []
-    for i in range(1, len(poly) - 1):
-        tris.append([poly[0], poly[i], poly[i + 1]])
-    return tris
+        coords = list(tri.exterior.coords)
+        if len(coords) < 3:
+            continue
+
+        # exterior coords are closed, so ignore last vertex
+        triangles.append([coords[0], coords[1], coords[2]])
+
+    return triangles
 
 
 # ================================================================
@@ -79,9 +95,7 @@ def compute_normal(p1, p2, p3):
 # ================================================================
 
 def build_obj_from_polygons(polygons, output_obj_path: Path):
-    """
-    polygons: lista de polígonos, cada uno = [[x,y], [x,y], ...]
-    """
+    """Acepta secuencias de puntos o instancias de shapely.geometry.Polygon."""
     print("[INFO] Building roads OBJ mesh with one triangulation per street polygon...")
 
     vertices = []
@@ -93,8 +107,12 @@ def build_obj_from_polygons(polygons, output_obj_path: Path):
     Z_ROAD = 0.05  # un poco por encima del ground_plane
 
     for poly in polygons:
-        if len(poly) < 3:
-            continue
+        if isinstance(poly, Polygon):
+            if poly.is_empty or poly.area == 0:
+                continue
+        else:
+            if len(poly) < 3:
+                continue
 
         tris = triangulate_polygon(poly)
 
@@ -271,17 +289,32 @@ def create_world_sdf(output_world_path: Path):
     print(f"[OK] World SDF saved: {output_world_path}")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Build an OBJ/SDF road mesh starting from merged road polygons."
+    )
+    parser.add_argument(
+        "input_json",
+        help="Path to maps/road_polygons_merged.json",
+    )
+    parser.add_argument(
+        "output_world",
+        nargs="?",
+        default="worlds/bari_world.sdf",
+        help="Destination world SDF (default: worlds/bari_world.sdf)",
+    )
+    return parser.parse_args()
+
+
 # ================================================================
 # MAIN
 # ================================================================
 
 def main():
-    if len(sys.argv) != 2 and len(sys.argv) != 3:
-        print("Usage: python build_sdf_roads_individual.py <road_polygons_merged.json> [output_world.sdf]")
-        sys.exit(1)
+    args = parse_args()
 
-    json_in = Path(sys.argv[1])
-    world_out = Path(sys.argv[2]) if len(sys.argv) == 3 else Path("worlds/bari_world.sdf")
+    json_in = Path(args.input_json)
+    world_out = Path(args.output_world)
 
     print(f"[INFO] Loading merged road polygons from: {json_in}")
     with json_in.open("r") as f:
@@ -294,10 +327,24 @@ def main():
         for coords in merged_polys:
             if len(coords) < 3:
                 continue
-            polygons.append(coords)
+            try:
+                poly = Polygon(coords)
+            except Exception as exc:
+                print(f"[WARN] Invalid polygon skipped ({exc})")
+                continue
+
+            if poly.is_empty:
+                continue
+
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+                if poly.is_empty:
+                    continue
+
+            polygons.append(poly)
 
     if not polygons:
-        print("[ERROR] No polygons found in road_polygons_merged.json")
+        print("[ERROR] No polygons found after processing.")
         sys.exit(1)
 
     model_dir = Path("worlds/models/roads_mesh")

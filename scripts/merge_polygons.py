@@ -3,45 +3,67 @@ import sys
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-def merge_polygons(input_path, output_path):
+
+def merge_polygons(input_path, output_path, merge_by_name=True):
     print("[INFO] Loading polygons:", input_path)
 
     with open(input_path, "r") as f:
         data = json.load(f)
 
-    merged = {}
-
-    print("[INFO] Merging polygons by road ID...")
+    groups = {}
+    strategy = "street name" if merge_by_name else "road ID"
+    print(f"[INFO] Merging polygons by {strategy}...")
 
     for way_id, entry in data.items():
-        polys = []
-
-        # Each entry["polygon"] is a list of [x,y]
         poly_coords = entry["polygon"]
+        tags = entry.get("tags", {})
 
         try:
-            p = Polygon(poly_coords)
-            if p.is_valid and not p.is_empty:
-                polys.append(p)
-        except Exception as e:
-            print(f"  [WARN] Invalid polygon for road {way_id}: {e}")
+            poly = Polygon(poly_coords)
+        except Exception as exc:
+            print(f"  [WARN] Invalid polygon for road {way_id}: {exc}")
             continue
 
-        # Unary union merges all segments for this road
-        if len(polys) > 0:
-            merged_poly = unary_union(polys)
+        if poly.is_empty or not poly.is_valid:
+            continue
 
-            # Handle MultiPolygon (unlikely but possible)
-            if hasattr(merged_poly, "geoms"):
-                merged_coords = [list(poly.exterior.coords) for poly in merged_poly.geoms]
-            else:
-                merged_coords = [list(merged_poly.exterior.coords)]
+        name = tags.get("name") if merge_by_name else None
+        key = name if name else way_id
 
-            merged[way_id] = {
-                "merged_polygons": merged_coords,
-                "tags": entry.get("tags", {}),
-                "width": entry.get("width", None)
+        if key not in groups:
+            groups[key] = {
+                "polygons": [],
+                "tags": tags,
+                "widths": [],
+                "source_way_ids": []
             }
+
+        groups[key]["polygons"].append(poly)
+        groups[key]["source_way_ids"].append(way_id)
+        if entry.get("width") is not None:
+            groups[key]["widths"].append(entry["width"])
+
+    merged = {}
+
+    for key, info in groups.items():
+        merged_poly = unary_union(info["polygons"])
+
+        if merged_poly.is_empty:
+            continue
+
+        if hasattr(merged_poly, "geoms"):
+            merged_coords = [list(poly.exterior.coords) for poly in merged_poly.geoms]
+        else:
+            merged_coords = [list(merged_poly.exterior.coords)]
+
+        width_value = info["widths"][0] if info["widths"] else None
+
+        merged[key] = {
+            "merged_polygons": merged_coords,
+            "tags": info.get("tags", {}),
+            "width": width_value,
+            "source_way_ids": info.get("source_way_ids", [])
+        }
 
     print("[INFO] Saving merged polygons:", output_path)
 
@@ -59,7 +81,7 @@ def main():
     input_path = sys.argv[1]
     output_path = sys.argv[2]
 
-    merge_polygons(input_path, output_path)
+    merge_polygons(input_path, output_path, merge_by_name=True)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ python scripts/convert_xml_to_enu.py maps/map.xml maps/map.json auto
 
 chmod +x scripts/compute_edges.py
 
-python scripts/compute_edges.py maps/map.json maps/edges.json
+python scripts/compute_edges.py maps/map.json maps/edges.json  # calcula anchos según tags/highway
 
 chmod +x scripts/compute_polygons.py
 
@@ -29,3 +29,5 @@ python scripts/merge_polygons.py maps/road_polygons.json maps/road_polygons_merg
 chmod +x scripts/build_sdf_roads_individual.py
 
 python scripts/build_sdf_roads_individual.py maps/road_polygons_merged.json worlds/bari_world.sdf
+
+gz sim worlds/bari_world.sdf

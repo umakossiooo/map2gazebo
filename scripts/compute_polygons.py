@@ -1,26 +1,46 @@
 import json
 import sys
 
+from shapely.geometry import LineString
+
+
 def build_polygon(left_edge, right_edge):
-    """
-    Combine left edge with reversed right edge 
-    to form a closed polygon.
-    """
+    """Fallback: combine left edge with reversed right edge."""
     polygon = []
 
-    # Add left edge points
     for pt in left_edge:
         polygon.append(pt)
 
-    # Add right edge points reversed
     for pt in reversed(right_edge):
         polygon.append(pt)
 
-    # Close polygon explicitly
-    if polygon[0] != polygon[-1]:
+    if polygon and polygon[0] != polygon[-1]:
         polygon.append(polygon[0])
 
     return polygon
+
+
+def build_polygon_from_centerline(centerline_points, width):
+    if not centerline_points or len(centerline_points) < 2:
+        return None
+
+    try:
+        line = LineString(centerline_points)
+    except Exception as exc:
+        print(f"[WARN] Could not build LineString ({exc}); falling back to offsets")
+        return None
+
+    if line.is_empty:
+        return None
+
+    half_width = width / 2.0
+    road_poly = line.buffer(half_width, cap_style=2, join_style=2, mitre_limit=5.0)
+
+    if road_poly.is_empty:
+        return None
+
+    coords = list(road_poly.exterior.coords)
+    return coords if coords else None
 
 
 def main():
@@ -38,20 +58,32 @@ def main():
     polygons = {}
 
     print("Building polygons...")
+    buffered_count = 0
+    fallback_count = 0
 
     for wid, data in edges.items():
         left_edge = data["left_edge"]
         right_edge = data["right_edge"]
         width = data["width"]
         tags = data["tags"]
+        centerline_points = data.get("centerline_points", [])
 
-        polygon = build_polygon(left_edge, right_edge)
+        polygon = build_polygon_from_centerline(centerline_points, width)
+
+        if polygon is None:
+            polygon = build_polygon(left_edge, right_edge)
+            fallback_count += 1
+        else:
+            buffered_count += 1
 
         polygons[wid] = {
             "polygon": polygon,
             "width": width,
             "tags": tags
         }
+
+    print(f"  [INFO] Buffered polygons: {buffered_count}")
+    print(f"  [INFO] Fallback polygons: {fallback_count}")
 
     print("Saving:", output_file)
     with open(output_file, "w") as f:

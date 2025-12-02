@@ -1,47 +1,25 @@
+import argparse
 import json
-import sys
 import math
 import numpy as np
 
-# Default widths (fallbacks)
-DEFAULT_WIDTHS = {
-    "motorway": 25.0,
-    "trunk": 20.0,
+# Width configuration (all in meters)
+LANE_WIDTH = 3.2
+WIDTH_BY_HIGHWAY = {
+    "motorway": 18.0,
+    "trunk": 15.0,
     "primary": 12.0,
     "secondary": 10.0,
     "tertiary": 8.0,
     "unclassified": 7.0,
     "residential": 6.0,
-    "service": 4.5,
+    "service": 5.0,
 }
+DEFAULT_ROAD_WIDTH = 6.5
+MIN_ROAD_WIDTH = 4.0
+MAX_ROAD_WIDTH = 18.0
 
-LANE_WIDTH = 3.2  # meters per lane
-
-
-def compute_width(tags):
-    """Return width using Option A logic."""
-
-    # A1: Direct width tag
-    if "width" in tags:
-        try:
-            return float(tags["width"])
-        except:
-            pass
-
-    # A2: Lanes tag
-    if "lanes" in tags:
-        try:
-            lanes = int(tags["lanes"])
-            return lanes * LANE_WIDTH
-        except:
-            pass
-
-    # A3: Use highway default
-    if "highway" in tags and tags["highway"] in DEFAULT_WIDTHS:
-        return DEFAULT_WIDTHS[tags["highway"]]
-
-    # A4: Unknown type → safe fallback
-    return 6.0
+ALLOWED_HIGHWAYS = set(WIDTH_BY_HIGHWAY.keys())
 
 
 def perpendicular_vector(p1, p2):
@@ -84,13 +62,48 @@ def compute_edges_for_way(node_coords, way_nodes, width):
     return left_edge, right_edge
 
 
-def main():
-    if len(sys.argv) != 3:
-        print("Usage: python compute_edges.py <map_enu.json> <edges.json>")
-        sys.exit(1)
+def clamp_width(width):
+    return max(MIN_ROAD_WIDTH, min(MAX_ROAD_WIDTH, width))
 
-    input_json = sys.argv[1]
-    output_json = sys.argv[2]
+
+def compute_width(tags):
+    if not tags:
+        return DEFAULT_ROAD_WIDTH
+
+    if "width" in tags:
+        try:
+            return clamp_width(float(tags["width"]))
+        except Exception:
+            pass
+
+    if "lanes" in tags:
+        try:
+            lanes = max(1, int(tags["lanes"]))
+            return clamp_width(lanes * LANE_WIDTH)
+        except Exception:
+            pass
+
+    highway = tags.get("highway")
+    if highway in WIDTH_BY_HIGHWAY:
+        return WIDTH_BY_HIGHWAY[highway]
+
+    return DEFAULT_ROAD_WIDTH
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Compute left/right edges for every drivable road."
+    )
+    parser.add_argument("map_json", help="Input ENU-converted map (maps/map.json)")
+    parser.add_argument("edges_json", help="Output file for edge data")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    input_json = args.map_json
+    output_json = args.edges_json
 
     print("Loading ENU map:", input_json)
     with open(input_json, "r") as f:
@@ -107,15 +120,26 @@ def main():
         wid = str(way["id"])
         way_nodes = way["nodes"]
         tags = way["tags"]
+        highway_type = tags.get("highway")
+        if highway_type not in ALLOWED_HIGHWAYS:
+            continue
 
         width = compute_width(tags)
         left_edge, right_edge = compute_edges_for_way(node_coords, way_nodes, width)
+
+        centerline_points = []
+        for node_id in way_nodes:
+            coord = node_coords.get(str(node_id))
+            if coord is None:
+                continue
+            centerline_points.append(coord)
 
         edges_output[wid] = {
             "width": width,
             "centerline_nodes": way_nodes,
             "left_edge": left_edge,
             "right_edge": right_edge,
+            "centerline_points": centerline_points,
             "tags": tags
         }
 
