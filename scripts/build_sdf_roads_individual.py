@@ -7,7 +7,7 @@ de maps/road_polygons_merged.json, triangulando cada polígono de forma
 individual para mantener la forma original de cada calle.
 
 Uso:
-  python scripts/build_sdf_roads_individual.py maps/road_polygons_merged.json worlds/bari_world.sdf
+  python scripts/build_sdf_roads_individual.py maps/road_polygons_merged.json worlds/map.sdf
 """
 
 import argparse
@@ -217,10 +217,10 @@ def create_model_config(model_dir: Path):
 # WORLD SDF
 # ================================================================
 
-def create_world_sdf(output_world_path: Path):
+def create_world_sdf(output_world_path: Path, world_name: str):
     world_xml = """<?xml version="1.6"?>
 <sdf version="1.8">
-  <world name="bari_world">
+  <world name="{world_name}">
 
     <gravity>0 0 -9.81</gravity>
 
@@ -282,6 +282,7 @@ def create_world_sdf(output_world_path: Path):
   </world>
 </sdf>
 """
+    world_xml = world_xml.format(world_name=world_name)
     output_world_path.parent.mkdir(parents=True, exist_ok=True)
     with output_world_path.open("w") as f:
         f.write(world_xml)
@@ -300,8 +301,8 @@ def parse_args():
     parser.add_argument(
         "output_world",
         nargs="?",
-        default="worlds/bari_world.sdf",
-        help="Destination world SDF (default: worlds/bari_world.sdf)",
+        default="worlds/map.sdf",
+        help="Destination world SDF (default: worlds/map.sdf)",
     )
     return parser.parse_args()
 
@@ -315,6 +316,7 @@ def main():
 
     json_in = Path(args.input_json)
     world_out = Path(args.output_world)
+    world_name = world_out.stem
 
     print(f"[INFO] Loading merged road polygons from: {json_in}")
     with json_in.open("r") as f:
@@ -359,7 +361,7 @@ def main():
     build_obj_from_polygons(polygons, mesh_out)
     create_model_sdf(model_dir, mesh_rel)
     create_model_config(model_dir)
-    create_world_sdf(world_out)
+    create_world_sdf(world_out, world_name)
 
     print("[DONE] SDF world is ready.")
 
