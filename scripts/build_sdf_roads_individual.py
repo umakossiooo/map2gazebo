@@ -14,10 +14,17 @@ import argparse
 import json
 import sys
 import math
+import shutil
 from pathlib import Path
 
 from shapely.geometry import Polygon
 from shapely.ops import triangulate as shapely_triangulate
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+ACKERMANN_PROJECT_DIR = REPO_ROOT.parent / "ackermann-vehicle-gzsim-ros2"
+ACKERMANN_WORLD_PATH = ACKERMANN_PROJECT_DIR / "saye_description/worlds/bari_world.sdf"
 
 
 # ================================================================
@@ -289,6 +296,24 @@ def create_world_sdf(output_world_path: Path, world_name: str):
     print(f"[OK] World SDF saved: {output_world_path}")
 
 
+def sync_ackermann_world(world_out: Path, model_dir: Path):
+    if not ACKERMANN_PROJECT_DIR.exists():
+        print(f"[WARN] Ackermann project not found at {ACKERMANN_PROJECT_DIR}; skipping sync.")
+        return
+
+    target_path = ACKERMANN_WORLD_PATH
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(world_out, target_path)
+    print(f"[INFO] Copied world to Ackermann project: {target_path}")
+
+    target_models_root = ACKERMANN_PROJECT_DIR / "saye_description/worlds/models"
+    target_model_dir = target_models_root / "roads_mesh"
+    if target_model_dir.exists():
+        shutil.rmtree(target_model_dir)
+    shutil.copytree(model_dir, target_model_dir)
+    print(f"[INFO] Copied road mesh model to Ackermann project: {target_model_dir}")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Build an OBJ/SDF road mesh starting from merged road polygons."
@@ -354,13 +379,13 @@ def main():
 
     # Limpia modelo anterior si existe
     if model_dir.exists():
-        import shutil
         shutil.rmtree(model_dir)
 
     build_obj_from_polygons(polygons, mesh_out)
     create_model_sdf(model_dir, mesh_rel)
     create_model_config(model_dir)
     create_world_sdf(world_out, world_name)
+    sync_ackermann_world(world_out, model_dir)
 
     print("[DONE] SDF world is ready.")
 
