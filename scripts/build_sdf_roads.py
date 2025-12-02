@@ -8,21 +8,39 @@ import math
 # ================================================================
 
 def triangulate_polygon(poly):
-    """Triangulate a polygon using a simple fan from the first vertex."""
+    """
+    Triangulate polygon in CCW orientation.
+    We enforce CCW because Gazebo expects front faces upward.
+    """
     if len(poly) < 3:
         return []
+
+    # Force CCW orientation
+    # Shoelace formula
+    area = 0
+    for i in range(len(poly)):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i+1) % len(poly)]
+        area += x1*y2 - x2*y1
+
+    if area < 0:
+        # polygon is clockwise → reverse it
+        poly = list(reversed(poly))
+
+    # fan triangulation
     triangles = []
     for i in range(1, len(poly) - 1):
         triangles.append([poly[0], poly[i], poly[i+1]])
-    return triangles
 
+    return triangles
 
 # ================================================================
 # NORMAL CALCULATION
 # ================================================================
 
+
 def compute_normal(p1, p2, p3):
-    """Compute a unit normal for triangle (p1, p2, p3)."""
+    """Compute upward-facing unit normal."""
     ux, uy, uz = p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]
     vx, vy, vz = p3[0]-p1[0], p3[1]-p1[1], p3[2]-p1[2]
 
@@ -34,7 +52,15 @@ def compute_normal(p1, p2, p3):
     if length == 0:
         return 0.0, 0.0, 1.0
 
-    return nx / length, ny / length, nz / length
+    nx /= length
+    ny /= length
+    nz /= length
+
+    # FORCE normals up always
+    if nz < 0:
+        nx, ny, nz = -nx, -ny, -nz
+
+    return nx, ny, nz
 
 
 # ================================================================
@@ -56,6 +82,7 @@ def build_obj_from_polygons(polygons, output_obj_path):
 
     v_idx = 1
     n_idx = 1
+    ROAD_Z = 0.01
 
     for group in polygons:         # each road's merged_polygons
         for poly in group:         # each poly is a list of [x, y]
@@ -65,9 +92,9 @@ def build_obj_from_polygons(polygons, output_obj_path):
             triangles = triangulate_polygon(poly)
 
             for tri in triangles:
-                p1 = (tri[0][0], tri[0][1], 0.02)
-                p2 = (tri[1][0], tri[1][1], 0.02)
-                p3 = (tri[2][0], tri[2][1], 0.02)
+                p1 = (tri[0][0], tri[0][1], ROAD_Z)
+                p2 = (tri[1][0], tri[1][1], ROAD_Z)
+                p3 = (tri[2][0], tri[2][1], ROAD_Z)
 
                 nx, ny, nz = compute_normal(p1, p2, p3)
 
@@ -172,16 +199,40 @@ def create_world_sdf(output_world_path):
     <gravity>0 0 -9.81</gravity>
 
     <scene>
-      <ambient>0.6 0.6 0.6 1</ambient>
-      <background>0.8 0.8 0.8 1</background>
+      <ambient>0.7 0.7 0.7 1</ambient>
+      <background>0.9 0.9 0.9 1</background>
     </scene>
 
+    <!-- Luz tipo sol -->
+    <light name="sun" type="directional">
+      <pose>0 0 50 0 0 0</pose>
+      <diffuse>1 1 1 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <attenuation>
+        <range>500</range>
+        <constant>1.0</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.5 -1</direction>
+    </light>
+
+    <!-- Cámara inicial desde arriba -->
+    <gui>
+      <camera name="default">
+        <pose>0 0 80 0 0 0</pose>
+      </camera>
+    </gui>
+
+    <!-- Malla de carreteras -->
     <include>
       <uri>model://roads_mesh</uri>
     </include>
 
+    <!-- Ground plane un poco por debajo -->
     <model name="ground_plane">
       <static>true</static>
+      <pose>0 0 -0.05 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry>
@@ -199,8 +250,8 @@ def create_world_sdf(output_world_path):
             </plane>
           </geometry>
           <material>
-            <diffuse>0.3 0.3 0.3 1</diffuse>
-            <ambient>0.2 0.2 0.2 1</ambient>
+            <diffuse>0.2 0.2 0.2 1</diffuse>
+            <ambient>0.1 0.1 0.1 1</ambient>
           </material>
         </visual>
       </link>
