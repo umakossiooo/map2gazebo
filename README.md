@@ -30,6 +30,12 @@ chmod +x scripts/build_sdf_roads_individual.py
 
 python scripts/build_sdf_roads_individual.py maps/road_polygons_merged.json worlds/map.sdf
 
+chmod +x scripts/extract_route_goals.py
+
+python scripts/extract_route_goals.py
+
+python scripts/extract_route_goals.py --all
+
 export GZ_SIM_RESOURCE_PATH=$PWD/worlds/models:${GZ_SIM_RESOURCE_PATH}
 
 gz sim worlds/map.sdf
