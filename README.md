@@ -30,11 +30,17 @@ chmod +x scripts/build_sdf_roads_individual.py
 
 python scripts/build_sdf_roads_individual.py maps/road_polygons_merged.json worlds/map.sdf
 
+chmod +x scripts/extract_all_road_coordinates.py
 chmod +x scripts/extract_route_goals.py
 
+# Extract all coordinates within road area
+python scripts/extract_all_road_coordinates.py
+
+# Extract random route goals (default: 15)
 python scripts/extract_route_goals.py
 
-python scripts/extract_route_goals.py --all
+# Extract custom number of route goals
+python scripts/extract_route_goals.py 20
 
 export GZ_SIM_RESOURCE_PATH=$PWD/worlds/models:${GZ_SIM_RESOURCE_PATH}
 
