@@ -302,7 +302,7 @@ def main():
                     poly = poly.difference(roads_union)
                 except Exception:
                     continue
-        
+
          if not poly.is_empty:
              processed_buildings.append((poly, height))
 
