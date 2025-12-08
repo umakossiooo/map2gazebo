@@ -6,55 +6,80 @@ class RoadExtractor(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
         self.nodes = {}
-        self.ways = []
+        self.ways = {}       # Store ALL ways temporarily {id: {nodes:[], tags:{}}}
+        self.relations = []  # Store building relations
+        self.needed_way_ids = set() # Ways we must keep (roads + building parts)
 
     def node(self, n):
-        # Save nodes with coordinates
         self.nodes[n.id] = (n.location.lat, n.location.lon)
 
     def way(self, w):
-        # Only accept real roads
-        if 'highway' in w.tags:
-            node_ids = [nd.ref for nd in w.nodes]
+        # Store way data
+        tags = {tag.k: tag.v for tag in w.tags}
+        self.ways[w.id] = {
+            'id': w.id,
+            'nodes': [nd.ref for nd in w.nodes],
+            'tags': tags
+        }
+        
+        # Keep if it is a road or a building itself
+        if 'highway' in tags or 'building' in tags:
+            self.needed_way_ids.add(w.id)
 
-            # FIX: TagList must be iterated manually
-            tags = {}
-            for tag in w.tags:
-                tags[tag.k] = tag.v
-
-            self.ways.append({
-                'id': w.id,
-                'nodes': node_ids,
+    def relation(self, r):
+        # Keep if it is a building multipolygon
+        if 'building' in r.tags and r.tags.get('type') == 'multipolygon':
+            members = []
+            for m in r.members:
+                if m.type == 'w':
+                    members.append({'ref': m.ref, 'role': m.role})
+                    self.needed_way_ids.add(m.ref) # Mark member way as needed
+            
+            tags = {tag.k: tag.v for tag in r.tags}
+            self.relations.append({
+                'id': r.id,
+                'members': members,
                 'tags': tags
             })
 
-
-def write_clean_xml(nodes, ways, output_xml):
+def write_clean_xml(nodes, ways_dict, relations, needed_way_ids, output_xml):
     root = ET.Element("osm", version="0.6")
 
-    # Write nodes
+    # 1. Collect used node IDs from the needed ways
+    used_node_ids = set()
+    final_ways = []
+    
+    # Filter ways
+    for wid in needed_way_ids:
+        if wid in ways_dict:
+            w = ways_dict[wid]
+            final_ways.append(w)
+            for nid in w['nodes']:
+                used_node_ids.add(nid)
+    
+    # 2. Write Nodes
     for nid, (lat, lon) in nodes.items():
-        ET.SubElement(root, "node", {
-            "id": str(nid),
-            "lat": str(lat),
-            "lon": str(lon)
-        })
+        if nid in used_node_ids:
+            ET.SubElement(root, "node", {"id": str(nid), "lat": str(lat), "lon": str(lon)})
 
-    # Write ways (roads)
-    for w in ways:
+    # 3. Write Ways
+    for w in final_ways:
         way_el = ET.SubElement(root, "way", {"id": str(w["id"])})
-
-        # Add node refs
         for nid in w["nodes"]:
             ET.SubElement(way_el, "nd", {"ref": str(nid)})
-
-        # Add tags
         for k, v in w["tags"].items():
             ET.SubElement(way_el, "tag", {"k": k, "v": v})
+            
+    # 4. Write Relations
+    for r in relations:
+        rel_el = ET.SubElement(root, "relation", {"id": str(r["id"])})
+        for m in r["members"]:
+            ET.SubElement(rel_el, "member", {"type": "way", "ref": str(m["ref"]), "role": m["role"]})
+        for k, v in r["tags"].items():
+            ET.SubElement(rel_el, "tag", {"k": k, "v": v})
 
     tree = ET.ElementTree(root)
     tree.write(output_xml, encoding="utf-8", xml_declaration=True)
-
 
 def main():
     if len(sys.argv) != 3:
@@ -68,11 +93,11 @@ def main():
     handler = RoadExtractor()
     handler.apply_file(input_osm, locations=True)
 
-    print("Writing cleaned XML:", output_xml)
-    write_clean_xml(handler.nodes, handler.ways, output_xml)
+    print(f"Collected {len(handler.ways)} ways and {len(handler.relations)} relations.")
+    print(f"Filtering down to {len(handler.needed_way_ids)} relevant ways...")
 
+    write_clean_xml(handler.nodes, handler.ways, handler.relations, handler.needed_way_ids, output_xml)
     print("Done! Output saved to:", output_xml)
-
 
 if __name__ == "__main__":
     main()

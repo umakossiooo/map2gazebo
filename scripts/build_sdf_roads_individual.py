@@ -258,6 +258,10 @@ def create_world_sdf(output_world_path: Path, world_name: str):
       <uri>model://roads_mesh</uri>
     </include>
 
+    <include>
+      <uri>model://buildings_mesh</uri>
+    </include>
+
     <model name="ground_plane">
       <static>true</static>
       <pose>0 0 0 0 0 0</pose>
@@ -312,6 +316,15 @@ def sync_ackermann_world(world_out: Path, model_dir: Path):
         shutil.rmtree(target_model_dir)
     shutil.copytree(model_dir, target_model_dir)
     print(f"[INFO] Copied road mesh model to Ackermann project: {target_model_dir}")
+
+    # Also sync buildings_mesh if it exists
+    buildings_dir = model_dir.parent / "buildings_mesh"
+    if buildings_dir.exists():
+        target_buildings_dir = target_models_root / "buildings_mesh"
+        if target_buildings_dir.exists():
+            shutil.rmtree(target_buildings_dir)
+        shutil.copytree(buildings_dir, target_buildings_dir)
+        print(f"[INFO] Copied buildings mesh model to Ackermann project: {target_buildings_dir}")
 
 
 def parse_args():

@@ -9,6 +9,7 @@ def load_osm_xml(xml_path):
 
     nodes = {}
     ways = []
+    relations = []
 
     # Extract nodes
     for n in root.findall("node"):
@@ -31,12 +32,28 @@ def load_osm_xml(xml_path):
             "nodes": node_refs,
             "tags": tags
         })
+        
+    # Extract relations
+    for r in root.findall("relation"):
+        rid = int(r.attrib["id"])
+        members = []
+        for m in r.findall("member"):
+            if m.attrib.get("type") == "way":
+                members.append({
+                    "ref": int(m.attrib["ref"]),
+                    "role": m.attrib.get("role", "")
+                })
+        tags = {}
+        for tag in r.findall("tag"):
+            tags[tag.attrib["k"]] = tag.attrib["v"]
+        
+        relations.append({"id": rid, "members": members, "tags": tags})
 
-    return nodes, ways
+    return nodes, ways, relations
 
 
 def convert_to_enu(nodes, origin_lat, origin_lon):
-    # Set WGS84 → ENU transformer
+    # Set WGS84 -> ENU transformer
     proj_lla = Proj(proj='latlong', datum='WGS84')
     proj_enu = Proj(proj='aeqd', lat_0=origin_lat, lon_0=origin_lon, datum='WGS84')
     transformer = Transformer.from_proj(proj_lla, proj_enu, always_xy=True)
@@ -50,10 +67,11 @@ def convert_to_enu(nodes, origin_lat, origin_lon):
     return enu_nodes
 
 
-def save_to_json(output_path, enu_nodes, ways):
+def save_to_json(output_path, enu_nodes, ways, relations):
     data = {
         "nodes_enu": enu_nodes,
-        "ways": ways
+        "ways": ways,
+        "relations": relations
     }
 
     with open(output_path, "w") as f:
@@ -75,7 +93,7 @@ def main():
     origin_mode = sys.argv[3]
 
     print("Loading XML:", xml_path)
-    nodes, ways = load_osm_xml(xml_path)
+    nodes, ways, relations = load_osm_xml(xml_path)
 
     # Determine origin
     if origin_mode == "auto":
@@ -93,7 +111,7 @@ def main():
     enu_nodes = convert_to_enu(nodes, origin_lat, origin_lon)
 
     print("Saving ENU file:", output_path)
-    save_to_json(output_path, enu_nodes, ways)
+    save_to_json(output_path, enu_nodes, ways, relations)
 
     print("DONE.")
 

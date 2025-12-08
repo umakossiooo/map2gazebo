@@ -26,6 +26,10 @@ chmod +x scripts/merge_polygons.py
 
 python scripts/merge_polygons.py maps/road_polygons.json maps/road_polygons_merged.json
 
+chmod +x scripts/build_sdf_buildings.py
+
+python scripts/build_sdf_buildings.py maps/map.json maps/road_polygons_merged.json
+
 chmod +x scripts/build_sdf_roads_individual.py
 
 python scripts/build_sdf_roads_individual.py maps/road_polygons_merged.json worlds/map.sdf
